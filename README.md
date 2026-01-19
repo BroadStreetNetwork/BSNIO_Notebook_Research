@@ -1,2 +1,2 @@
-# BSNIO_Notebook_research
-Repo for BSNIO Notebook Research - an adaptation of Google NotebookLM 
+# BSNIO Notebook Research
+Repo for BSNIO Notebook Research - an adaptation of Google Notebook LM 
