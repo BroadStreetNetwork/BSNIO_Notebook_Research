@@ -1,107 +1,74 @@
-# BSNIO Notebook Research (NotebookLM-style Clone)
+# BSNIO Notebook Research
 
-An **open, deploy-anywhere, provider-agnostic** research notebook application inspired by NotebookLM.
+A multi-provider, deploy-anywhere NotebookLM-style research workspace that turns **sources → grounded understanding → reusable outputs**.
 
-This project is built around three ideas:
-1) **Bring your own providers** (Gemini, Claude, OpenAI, OpenRouter, Abacus RouteLLM)
-2) **Bring your own data/retrieval** (Gemini File Search, Postgres+pgvector, Abacus Vector Store)
-3) **Capability-driven UX** (the app introspects config and adapts features automatically)
+## What it does
+- Ingest sources: file uploads, URLs, and MCP connectors (Drive, GitHub, Notion, etc.)
+- Retrieve evidence via a configurable RAG backend (managed or self-hosted) and answer with citations
+- Generate reusable outputs (“put learning to work”):
+  - codebase understanding + repo wikis
+  - documentation/how-to/SOPs
+  - prompt & instruction packs
+  - tables, slide outlines, flashcards/quizzes
+  - audio (TTS), images, optional video
 
----
+## V2 tech direction
+- Web: Next.js
+- API + workers: Bun (TypeScript)
+- Architecture: adapters for Providers, Data Plane, Auth, and Deployment Profiles
 
-## What the app does
+## Pluggable options
 
-### Core workflow
-- Create a **notebook**
-- Add **sources** (files, URLs, YouTube transcripts, pasted text, code repos)
-- Chat with your sources using **RAG** (retrieval-augmented generation) with **citations**
-- Generate **artifacts** (“Studio outputs”) from those sources
+### LLM providers (BYO keys)
+- Google Gemini
+- Anthropic Claude
+- OpenAI
+- OpenRouter (OpenAI-compatible)
+- Abacus RouteLLM (OpenAI-compatible router)
 
-### Artifacts (outputs)
-- Reports / briefings / structured summaries
-- Flashcards + quizzes + study guides
-- Slides (PPTX) + downloadable exports
-- Mind maps (graph/outline views)
-- Audio overview (podcast-style)
-- Video overview (optional)
-- Codebase understanding: wiki/docs/how-to + “prompt packs” for putting knowledge to work
+### Data Plane (three independent decisions)
 
-### Sharing
-- Share a notebook (viewer/editor)
-- Share a chat session
-- Share specific artifacts (e.g., an audio overview, a slide deck)
+**Relational DB (metadata/transactions)**
+- Postgres / Supabase Postgres
+- MySQL
+- SQLite (embedded)
+- Turso (hosted SQLite)
+- DuckDB (embedded analytics)
+- Abacus transactional DB (adapter, if/when used)
 
-### Observability
-- Token usage + cost estimates per operation
-- Storage usage, source tokenization metrics, context-window metrics
-- Admin-level audit logs
+**Vector Store / RAG Index (retrieval)**
+- Gemini File Search ("Gemini File Store") — managed semantic retrieval + metadata filters
+- Postgres + pgvector (requires Postgres)
+- SQLite/Turso + sqlite-vector (requires SQLite/Turso)
+- Qdrant
+- LanceDB
+- Abacus Vector Store (adapter)
+- vectorwrap (optional wrapper/unifier across vector backends)
 
----
+**Object Storage (files/artifacts)**
+- Supabase Storage
+- S3-compatible (AWS S3, Cloudflare R2, Wasabi, etc.)
+- Abacus Storage (adapter)
+- Local filesystem (VPS/dev)
 
-## Tech stack (paved road)
+### Auth
+- Supabase Auth
+- OAuth/OIDC (Google/GitHub)
+- JWT-only for private deployments behind SSO
+- Dev profile (no-auth) for local/dev
 
-- **Backend API:** Bun + TypeScript
-- **HTTP framework:** lightweight TS HTTP framework (implementation guide uses a Hono-style approach)
-- **Data:** Postgres (Supabase or direct), optional pgvector
-- **Retrieval:** Gemini File Search OR pgvector OR Abacus Vector Store
-- **Auth:** Supabase Auth OR OAuth/OIDC OR JWT-only
-- **Storage:** Supabase Storage OR S3-compatible OR VPS filesystem
-- **Frontend:** Next.js + Tailwind + shadcn/ui (or any client; UI is just an API consumer)
+## Deploy
+Deployments are defined by a **profile**:
+- Abacus-hosted
+- VPS Docker
+- Netlify web + external API/worker
+- (Optional) Vercel
 
----
-
-## Deployment options
-
-Choose a **Deployment Profile** (documented in the reference doc):
-
-1) **Netlify + VPS (recommended baseline)**
-   - Frontend: Netlify
-   - Backend: Bun API on VPS (Hostinger/Contabo/etc)
-
-2) **Abacus-hosted (Abacus ecosystem)**
-   - App deployed/hosted in Abacus
-   - RouteLLM as OpenAI-compatible router
-   - Retrieval via Abacus Vector Store (or external pgvector)
-
-3) **Vercel fullstack (frontend + separate backend)**
-   - Frontend on Vercel
-   - Backend on VPS/Abacus (recommended) unless your environment supports Bun runtime
-
-4) **VPS monolith**
-   - Everything behind Nginx/Traefik
-
----
-
-## Documentation
-
-These docs are the authoritative source of truth:
-
-- **Vision:** `docs/01_BSNIO-Notebook-Research_VISION_DOCUMENT.md`
-- **Specification:** `docs/02_BSNIO-Notebook-Research-PROJECT_SPECIFICATION.md`
-- **Implementation Guide:** `docs/03_BSNIO-Notebook-Research-IMPLEMENTATION_GUIDE.md`
-- **Docs Update Plan (history / rationale):** `docs/04_BSNIO-Notebook-Research_DOCS_UPDATE_PLAN_2026_v2.md`
-- **Reference (providers/capabilities/env/deploy):** `docs/05_BSNIO-Notebook-Research_CAPABILITIES_PROVIDERS_DEPLOYMENT.md`
-
----
-
-## Quick start (high level)
-
-1) Pick a deployment profile.
-2) Configure env vars for:
-   - auth
-   - db/storage
-   - at least one LLM provider
-   - one retrieval backend
-3) Run migrations.
-4) Start API and UI.
-
-See the Implementation Guide for the exact steps.
-
----
-
-## Contributing
-
-- Keep all new features capability-gated.
-- Avoid provider lock-in.
-- Keep the API stable; UI can change freely.
-
+## Docs
+See `/docs/`:
+- 01 Vision
+- 02 Project Specification
+- 03 Implementation Guide
+- 04 Docs Update Plan
+- 05 Reference (capabilities, providers, env vars, profile checklists)
+- Master Doc (all docs combined for Google Docs conversion)
