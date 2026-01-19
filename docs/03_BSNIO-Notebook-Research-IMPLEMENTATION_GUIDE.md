@@ -1,263 +1,129 @@
-# BSNIO Notebook Research
-## Implementation Guide (V2)
+# BSNIO Notebook Research — Implementation Guide (V2.1)
 
-> **Version:** 2.0 (Docs Refresh) | **Date:** January 2026
->
-> This guide is the **opinionated “paved road”** for implementing the V2 architecture using **Bun + TypeScript** (backend) and a decoupled frontend (typically Next.js). Everything is modular: provider adapters, retrieval backends, auth backends, storage backends, and deployment profiles.
->
-> For matrices, env vars, and deploy checklists, see:
-> - `05_BSNIO-Notebook-Research_CAPABILITIES_PROVIDERS_DEPLOYMENT.md`
+This guide describes the Bun/TypeScript implementation approach, emphasizing adapters and deployment profiles.
 
----
+## 0) Setup checklist (fast)
+1) Pick a deployment profile
+2) Pick relational DB + object storage + vector/RAG backend
+3) Configure auth
+4) Configure LLM and artifact providers
+5) Confirm `/api/v1/capabilities` shows ready components
 
-## 0) What you are building
+## 1) Suggested repo layout
+- apps/web — Next.js UI
+- apps/api — Bun API (REST + SSE/WebSocket)
+- apps/worker — background jobs
+- packages/core — types, capability schema, domain models
+- packages/adapters — provider/data/auth adapters
+- deploy — deployment profiles and scripts
+- docs — documentation
 
-A source-centric research app with:
-- Notebooks + Sources + Chat w/ citations
-- Studio outputs (“Artifacts”) like reports, mind maps, slides, flashcards/quizzes, audio/video
-- Sharing (notebook share links, artifact share links, shared chat)
-- Provider abstraction (Gemini / Claude / OpenAI / OpenRouter / Abacus RouteLLM)
-- Retrieval abstraction (Gemini File Search / Postgres+pgvector / Abacus Vector Store)
-- Capability-driven UX
+## 2) Deployment profiles
+- **abacus-hosted**: API + worker in Abacus environment; optional Abacus DB/vector/storage; optional RouteLLM routing
+- **vps-docker**: Docker Compose for web/api/worker; optional postgres/mysql/qdrant services
+- **netlify-web**: web on Netlify; API/worker on VPS or Abacus; configure CORS + OAuth callbacks
 
----
+## 3) Data plane configuration (3 independent choices)
 
-## 1) Choose a deployment profile first
+### 3.1 Relational DB (metadata)
+Pick one:
+- Postgres / Supabase Postgres
+- MySQL
+- SQLite
+- Turso
+- DuckDB
+- Abacus transactional DB (optional)
 
-Pick one profile and stick to it for the first implementation pass.
+### 3.2 Object storage (files/artifacts)
+Pick one:
+- Supabase Storage
+- S3-compatible (S3/R2/etc.)
+- Abacus Storage (optional)
+- Local filesystem (VPS/dev)
 
-### Profile A: **Netlify Frontend + VPS Backend (recommended baseline)**
-- Frontend: Netlify
-- Backend API: VPS (Hostinger / Contabo / etc.) running Bun
-- DB: Supabase or Postgres on VPS/managed
-- Storage: S3-compatible (or Supabase Storage)
+### 3.3 Vector store / RAG index (retrieval)
+Pick one:
+- Gemini File Search (Gemini File Store)
+- pgvector (requires Postgres)
+- sqlite-vector (requires SQLite/Turso)
+- Qdrant
+- LanceDB
+- Abacus Vector Store (optional)
+- vectorwrap (optional)
 
-### Profile B: **Abacus-hosted App (Abacus deployment + RouteLLM)**
-- App hosting and environment managed in Abacus
-- RouteLLM for routing (OpenAI-compatible)
-- Data: use Abacus-supported DB/auth (if available) OR connect external Postgres via connector; keep escape hatches
-- Retrieval: Abacus Vector Store OR external pgvector
+### 3.4 Recommended combos
+- MySQL + Gemini File Store + S3/R2
+- SQLite/Turso + Gemini File Store + S3/R2
+- SQLite/Turso + sqlite-vector + local_fs (VPS simplicity)
+- Postgres + pgvector + S3/R2
+- Any relational + Qdrant (dedicated vector DB)
+- Any relational + LanceDB (embedded/local-first)
 
-### Profile C: **VPS Monolith (frontend+backend behind one domain)**
-- Nginx/Traefik reverse proxy
-- Backend: Bun API
-- Frontend: Next.js build served by Node/Bun
-- DB/Storage: local or managed
+## 4) Providers (LLM + artifacts)
 
-> Vercel can still host the frontend, but Bun runtime support varies by platform. If Bun cannot run server-side in your chosen platform, keep the **backend on VPS or Abacus** and host the UI wherever you want.
-
----
-
-## 2) Repo layout (recommended)
-
-```
-BSNIO_Notebook_Research/
-  apps/
-    api/                 # Bun backend
-    web/                 # Next.js frontend (optional)
-  packages/
-    core/                # shared types, capability schema
-    adapters/            # provider + retrieval + storage adapters
-  docs/                  # planning docs
-  scripts/               # local tooling
-```
-
----
-
-## 3) Backend (Bun) implementation
-
-### 3.1 Initialize the Bun API app
-
-```
-cd apps
-mkdir api && cd api
-bun init -y
-```
-
-Recommended dependencies:
-- HTTP: `hono` (fast, portable, small)
-- Validation: `zod`
-- DB: `postgres` (driver) + `drizzle-orm` (or Prisma if preferred)
-- Auth: `jose` (JWT), optional `@supabase/supabase-js`
-- Providers:
-  - `openai` (OpenAI SDK, also works for OpenAI-compatible providers by setting `baseURL`)
-  - `@anthropic-ai/sdk`
-  - `@google/generative-ai` (or Google’s newer GenAI SDK if preferred)
-- Storage:
-  - `@aws-sdk/client-s3` (S3-compatible)
-  - `@supabase/storage-js` (if using Supabase Storage)
-
-```
-bun add hono zod jose
-bun add drizzle-orm postgres
-bun add openai @anthropic-ai/sdk @google/generative-ai
-bun add @aws-sdk/client-s3
-```
-
-### 3.2 Core concepts to implement (in order)
-
-Implement the *interfaces first*, then the concrete adapters.
-
-#### 3.2.1 Capabilities
-- Implement `GET /api/v1/capabilities`
-- Back it from env vars + adapter `health()` checks
-- Use the canonical schema in doc 05
-
-#### 3.2.2 Provider Abstraction Layer
-Create adapters for:
-- **LLM chat** (streaming preferred)
-- **Embeddings** (optional but needed for pgvector)
-- **Image** (optional)
-- **TTS** (optional)
-- **Video** (optional)
-
-Minimum “day 1”:
-- OpenAI-compatible adapter (OpenAI / OpenRouter / Abacus RouteLLM)
-- Gemini adapter
-- Claude adapter
-
-#### 3.2.3 Retrieval Abstraction Layer
-Implement `RagIndexProvider` with three backends:
-- `gemini_file_search` (stores docs in Gemini store)
-- `pgvector` (stores chunks and embeddings in Postgres)
-- `abacus_vector_store` (stores docs in Abacus Vector Store)
-
-Day 1 recommendation:
-- Start with `gemini_file_search` OR `pgvector`.
-- Add the third backend after baseline is stable.
-
-#### 3.2.4 Data and storage abstraction
+### 4.1 LLM adapters
 Implement:
-- `DbAdapter` (Supabase Postgres vs direct Postgres)
-- `StorageAdapter` (Supabase Storage vs S3 vs local)
+- `OpenAICompatibleLLMAdapter` (OpenAI/OpenRouter/RouteLLM via base URL)
+- `GeminiLLMAdapter`
+- `AnthropicLLMAdapter`
 
----
+### 4.2 Artifact adapters
+Implement interfaces:
+- `TTSProvider`
+- `ImageProvider`
+- `VideoProvider` (optional)
 
-## 4) Database: migrations + core tables
+## 5) Auth
+Choose one:
+- Supabase Auth
+- OIDC (Google/GitHub)
+- JWT-only (private SSO)
+- Dev/no-auth
 
-Implement the canonical schema from the V2 specification:
-- `profiles`, `notebooks`, `sources`, `chat_sessions`, `chat_messages`
-- `artifacts` (unified)
-- `shares` (notebook / artifact / chat)
-- `usage_events` (tokens/cost/storage)
+## 6) Capabilities endpoint
+Implement `GET /api/v1/capabilities`.
 
-### 4.1 pgvector mode
-If `RAG_BACKEND=pgvector`:
-- Ensure Postgres extension: `CREATE EXTENSION IF NOT EXISTS vector;`
-- Add `chunks(embedding vector(N))` and (optional) `tsvector` columns.
+Checks:
+- relational connectivity
+- storage write test
+- vector readiness + constraint evaluation
+- at least one LLM provider configured
 
----
+UI must be capability-driven.
 
-## 5) Source ingestion
+## 7) Retrieval implementations
 
-### 5.1 Source types
-Implement ingestion for:
-- `file` (pdf/docx/txt/md)
-- `url` (web page)
-- `youtube` (metadata + transcript)
-- `text` (pasted)
-- `repo` (GitHub repo snapshot / zip / local upload)
+### 7.1 Gemini File Store
+- store per notebook
+- upload docs with metadata
+- query with metadata filters; return citations
 
-### 5.2 MCP ingestion (expansion)
-Design ingestion as “connectors”:
-- MCP servers can provide: Drive, GitHub, Notion, Slack, etc.
-- The app ingests connector output as one or more `Source` records.
+### 7.2 pgvector
+- vector column + index
+- similarity search returns chunk IDs; join to source metadata
 
----
+### 7.3 sqlite-vector
+- sqlite-vector extension
+- similarity search over chunk table
 
-## 6) Chat + citations
+### 7.4 Qdrant / LanceDB / Abacus
+- collection per notebook
+- upsert chunk vectors + metadata payload
+- query top-k; join back to relational
 
-### 6.1 Prompt contract
-- System: “Answer from sources; cite; separate inference from cited facts.”
-- Tooling: retrieval chunks injected + citations map
+### 7.5 vectorwrap
+- optional wrapper to unify multiple vector stores behind one API
 
-### 6.2 Multi-model chats
-Support:
-- Session default model
-- Per-message override
-- Optional: “compare models” mode (same prompt to multiple models)
+## 8) MCP ingestion
+- connector registry
+- per-notebook enabling and permissions
+- provenance in source metadata
+- audit log
 
-Store:
-- model used
-- input/output tokens
-- cost estimate
-
----
-
-## 7) Studio outputs (Artifacts)
-
-Implement a unified artifact pipeline:
-- **Reports** (briefing, FAQ, study guide)
-- **Flashcards / Quizzes**
-- **Mind maps** (graph output + layout)
-- **Slides** (PPTX)
-- **Audio overviews** (script + TTS)
-- **Video overviews** (script + generator)
-- **Codebase outputs**: wiki, docs, how-to, “prompt pack”
-
-Every artifact must:
-- reference notebook + sources used
-- store generation parameters
-- store provider usage & cost
-- be shareable via share links
-
----
-
-## 8) Sharing
-
-Implement:
-- Public or restricted link sharing
-- Viewer/editor roles
-- Optional “view-only chat” for public notebooks
-
-Share objects:
-- Notebook share (notebook page + sources list + allowed artifacts)
-- Artifact share (single artifact)
-- Chat share (read-only transcript)
-
----
-
-## 9) Frontend (Next.js) implementation
-
-You can implement the UI with Next.js, but keep it decoupled:
-- The UI reads `/capabilities` and adapts.
-- Layout uses a “panel registry” rather than a hard-coded 3-panel design.
-
-### 9.1 Layout engine
-Implement a layout config like:
-- `layout.mode = three_panel | two_panel | tabs | single`
-- `layout.left = SourcesPanel | OutlinePanel | ...`
-- `layout.right = StudioPanel | NotesPanel | ...`
-
----
-
-## 10) Deployment
-
-Use the checklists in doc 05.
-
-### 10.1 VPS backend (Bun)
-- Build + run as systemd service or Docker
-- Put behind Nginx
-- Configure env vars
-
-### 10.2 Netlify frontend
-- Set `NEXT_PUBLIC_API_URL`
-- Build with Next.js output
-
-### 10.3 Abacus deployment
-- Configure RouteLLM base URL and key
-- Configure DB/storage according to chosen profile
-
----
-
-## 11) “Done means done” acceptance checks
-
-Minimum acceptance:
-- Create notebook
-- Add sources (file + url + text)
-- Chat with citations
-- Generate one artifact (report)
-- Share a notebook read-only
-- Usage events recorded (tokens/cost)
-- `/capabilities` accurately reflects configuration
-
+## 9) Observability
+Log per request:
+- provider/model
+- tokens/cost/latency
+- retrieval stats
+- artifact generation time/size
+- errors/retries

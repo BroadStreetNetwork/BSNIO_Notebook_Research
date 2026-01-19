@@ -1,135 +1,115 @@
-# BSNIO Notebook Research
-## Vision Document (V2)
+# BSNIO Notebook Research — Vision (V2.1)
 
-> **Version:** 2.0 (Docs Refresh)
->
-> This project is an **open, deploy-anywhere, provider-agnostic** NotebookLM-style research workspace. The product is designed around **capabilities introspection**, **abstraction layers**, and **portable deployment profiles**, so it can run on Abacus-hosted deployments, Netlify+VPS, Vercel, or a private server—without rewriting the app.
+## Purpose
+Build an open, multi-provider “NotebookLM-style” research workspace that turns **sources → grounded understanding → reusable outputs**.
 
----
+This is not just a chat UI. It’s a system for:
+- ingesting many source types (files, URLs, repos, docs via MCP)
+- retrieving relevant evidence (semantic + metadata filtering)
+- producing grounded responses with citations
+- generating reusable outputs (wikis, docs, how-tos, prompt packs, study artifacts)
+- deploying across environments (Abacus AI hosted, Netlify, private VPS; Vercel optional)
 
-## 1) Why this exists
+## Non-negotiables
+1) **Provider independence**: LLMs, TTS, image/video generation, and retrieval/search are swappable via adapters.
+2) **Data plane independence**: Relational DB, object storage, and vector/RAG index are separate decisions.
+3) **Deployment independence**: Deployments are “profiles” (recipes), not hard-coded assumptions.
+4) **Capability introspection**: The app is self-aware and degrades safely when a capability isn’t configured.
 
-NotebookLM is a great “thinking partner,” but it’s a closed product and a walled garden: limited provider choice, limited deployment choice, limited data/control choice.
+## Core abstraction layers
 
-BSNIO Notebook Research aims to be:
-- **Open and flexible**: bring your own keys (Gemini, Claude, OpenAI, OpenRouter, Abacus RouteLLM), choose your retrieval backend, and deploy in multiple environments.
-- **Truth-forward**: citations, source provenance, auditability, cost visibility, and strong UX cues that distinguish “in sources” vs “model inference.”
-- **Practical**: turn knowledge into action—wikis, docs, how-to guides, prompts, codebase documentation, and artifacts teams can share.
+### A) Provider layer
+Support BYO keys per user or per workspace.
 
----
+**LLMs**
+- Google Gemini
+- Anthropic Claude
+- OpenAI
+- OpenRouter (OpenAI-compatible)
+- Abacus RouteLLM (OpenAI-compatible router)
 
-## 2) Product principles (non-negotiables)
+**Media/artifact providers**
+- TTS: Gemini / OpenAI / others via adapters
+- Image generation: Gemini Imagen / OpenAI Images / OpenRouter image-capable models
+- Video: AtlasCloud (existing) + additional providers via adapters (Abacus tools where available)
 
-### 2.1 Paved roads + escape hatches
-We provide a default “happy path” (Supabase + Gemini + Vercel/Netlify) but keep modular alternatives:
-- Data: Supabase Postgres / direct Postgres / (optional) Abacus app DB
-- Retrieval: Gemini File Search / Postgres+pgvector / Abacus Vector Store
-- Storage: Supabase Storage / S3-compatible / local filesystem (VPS)
-- Auth: Supabase / OAuth/OIDC / JWT-only
+**Multi-model chat is a first-class feature**
+- pick a model per message
+- route automatically (RouteLLM)
+- draft + verify (cheap model → verification model)
 
-### 2.2 Capability-driven UX
-The app is self-aware.
-- A `/capabilities` endpoint drives UI availability.
-- The same frontend can run against different backends and show only what’s configured.
+### B) Data plane layer (3 independent choices)
+We explicitly separate **Relational DB** and **Vector/RAG Index** so they can be mixed and matched.
 
-### 2.3 Provider-agnostic by design
-No “Gemini-only.” No “OpenAI-only.” The app treats providers as adapters.
+#### 1) Relational DB (metadata + transactions)
+- Postgres (self-hosted) / Supabase Postgres
+- MySQL
+- SQLite (embedded)
+- Turso (hosted SQLite)
+- DuckDB (embedded analytics; best for analysis-heavy notebooks/offline modes)
+- Abacus transactional DB (optional adapter)
 
-### 2.4 Observability is a feature
-Users should see:
-- token usage, provider/model used, cost estimate/actuals
-- storage usage
-- context window info (what’s being fed, what got retrieved)
-- per-notebook and per-user usage history
+#### 2) Object storage (files + artifacts)
+- Supabase Storage
+- S3-compatible (AWS S3, Cloudflare R2, etc.)
+- Abacus storage (adapter)
+- Local filesystem (VPS/dev)
 
-### 2.5 Sharing is first-class
-Share:
-- notebooks (restricted / link / invite)
-- notebook sources (controlled)
-- chats (sessions or specific messages)
-- artifacts (audio/video/slides/mind maps/reports/flashcards)
+#### 3) Vector store / RAG index (retrieval)
+- Gemini File Search ("Gemini File Store") — managed chunk+embed+semantic retrieval with metadata filters
+- Postgres + pgvector — app-managed embeddings + similarity search
+- SQLite/Turso + sqlite-vector — embedded similarity search
+- Qdrant — dedicated vector DB
+- LanceDB — embedded/local-first vector DB
+- Abacus Vector Store — managed (adapter)
+- vectorwrap — optional wrapper to unify multiple vector backends
 
----
+**Compatibility constraints (enforced by config validation + capabilities)**
+- pgvector requires Postgres (including Supabase Postgres)
+- sqlite-vector requires SQLite or Turso
 
-## 3) What we are building
+**Examples we explicitly support**
+- MySQL + Gemini File Store (cheap, portable)
+- SQLite + Gemini File Store (simple metadata + managed retrieval)
+- SQLite/Turso + sqlite-vector (single-service simplicity)
+- DuckDB + Qdrant/LanceDB (analytics + retrieval)
+- Postgres + pgvector (tightest integrated DB story)
 
-### 3.1 Core loop
-1) Create a notebook
-2) Add sources (files, URLs, YouTube, pasted text, optional MCP connectors)
-3) Ask questions with citations and source-grounding
-4) Generate artifacts (Studio outputs)
-5) Share results with a team or public link
+### C) Auth layer
+- Supabase Auth
+- OAuth/OIDC (Google, GitHub)
+- JWT-only / SSO-forwarded headers for private deployments
+- Dev/no-auth profile (local/dev only)
 
-### 3.2 Feature pillars
+### D) Deployment profiles
+- Abacus-hosted
+- VPS (Docker Compose recommended)
+- Netlify web + external API/worker
+- Vercel (optional)
 
-**A) Research chat with citations**
-- conversational Q&A over sources
-- citations with source pointers
-- “strict source mode” vs “allow inference mode”
+## Product pillars (outputs)
+Beyond “chat with sources,” the system must quickly produce outputs that help teams execute.
 
-**B) Studio (multi-output)**
-- Audio Overviews (multi-format)
-- Video Overviews (provider-dependent)
-- Mind Maps (topic graph of sources)
-- Reports/Briefings (executive summary, critique, Q&A, etc.)
-- Flashcards + quizzes
-- Slides (PPTX export)
+- **Codebase understanding**: ingest repos, generate architecture maps, API inventories, dependency diagrams (text/mermaid), change guidance grounded in code citations.
+- **Wikis & documentation**: project wiki, onboarding docs, runbooks, troubleshooting guides, decision logs.
+- **How-to / SOP generation**: step-by-step procedures grounded in sources and code.
+- **Prompt & instruction packs**: reusable system prompts, tool instructions, evaluation prompts, agent playbooks.
+- **Study artifacts**: flashcards, quizzes, structured tables, timelines.
+- **Media artifacts**: audio (TTS), images, optional video.
 
-**C) Put learning to work (action outputs)**
-- Codebase understanding (repo ingestion + architecture explainer)
-- Wiki/documentation generation
-- How-to guides and SOPs
-- Prompt packs / reusable instruction templates
+## MCP-first ingestion
+MCP servers expand inputs safely:
+- Drive, GitHub, Notion, crawlers, databases, ticketing systems, etc.
+- Notebook admins can enable/disable connectors; access is permissioned and audited.
 
-**D) Source discovery**
-- optional “discover sources” mode (web search + suggested sources)
-- imports become notebook sources (with provenance)
+## Sharing & collaboration
+First-class sharing for notebooks, sources, chats, and artifacts via share links + role-based permissions.
 
----
+## Observability & cost control
+Track tokens/cost/latency, context window usage, storage usage, retrieval stats, and provider errors/retries.
 
-## 4) Architecture shape (conceptual)
-
-### 4.1 Abstraction layers (V2)
-- **Provider Abstraction Layer**: LLM, embeddings, rerank, image, TTS, video, web-search.
-- **RAG Index Abstraction**: retrieval backend is swappable.
-- **Data Abstraction Layer**: DB + Storage (Supabase / Postgres / S3).
-- **Auth Abstraction Layer**: identity providers + JWT/API keys.
-- **Deployment Profile Layer**: “Abacus-hosted”, “Netlify+VPS”, “Vercel Fullstack”, “VPS Monolith”.
-
-### 4.2 Bun-first backend
-V2 pivots backend to **Bun + TypeScript** for:
-- single-language stack (TS across backend/frontend)
-- simpler refactoring and adapter development
-- easier packaging for VPS or container deployments
-
-(Local desktop packaging is optional; not a required deliverable in the docs refresh.)
-
----
-
-## 5) Non-goals (for this docs refresh)
-
-- Perfect 1:1 replication of every NotebookLM detail
-- Heavy multi-tenant enterprise RBAC on day one
-- A single “one true” deployment platform
-
----
-
-## 6) Success criteria
-
-### 6.1 Technical success
-- Swap providers without rewriting product code
-- Swap retrieval backends without rewriting chat logic
-- Deploy to 2+ platforms with minimal changes
-
-### 6.2 Product success
-- A notebook can be created and shared
-- Sources can be imported from multiple formats
-- Chat produces grounded answers with citations
-- At least 3 artifact types are working end-to-end
-
----
-
-## 7) References inside the docs set
-
-- Implementation sequence + refactor plan: `04_BSNIO-Notebook-Research_DOCS_UPDATE_PLAN_2026_v2.md`
-- Canonical configuration matrices: `05_BSNIO-Notebook-Research_CAPABILITIES_PROVIDERS_DEPLOYMENT.md`
+## Success criteria
+- Swap relational DB and vector store independently.
+- Add/remove providers without rewriting core logic.
+- Deploy to Abacus, VPS, or Netlify+API with minimal changes.
+- UI reflects capabilities; no broken actions exposed.
